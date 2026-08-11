@@ -143,11 +143,11 @@
 
   .playbook a{
     color:var(--accent); font-weight:500; text-decoration:underline;
-    text-underline-offset:2px; text-decoration-thickness:1px; word-break:break-all;
+    text-underline-offset:2px; text-decoration-thickness:1px; overflow-wrap:anywhere; word-break:normal;
   }
   .playbook a:hover{color:var(--accent-ink); text-shadow:0 0 10px rgba(45,226,255,.55);}
   .playbook a:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:2px;}
-  .shots figcaption a{color:var(--accent); word-break:break-all;}
+  .shots figcaption a{color:var(--accent); overflow-wrap:anywhere; word-break:normal;}
 
   .mind{
     margin-top:26px; background:var(--amber-wash); border:1px solid var(--amber-line);
@@ -213,10 +213,10 @@
   .article-body .para:last-child{margin-bottom:0;}
   .article-body a{
     color:var(--accent); font-weight:500; text-decoration:underline;
-    text-underline-offset:2px; word-break:break-all;
+    text-underline-offset:2px; overflow-wrap:anywhere; word-break:normal;
   }
   .article-body a:hover{color:var(--accent-ink); text-shadow:0 0 10px rgba(45,226,255,.55);}
-  .article-body .shots.inline{margin-bottom:12px;}
+  .article-body .shots.inline{margin-bottom:12px; margin-top:2px;}
 
   footer{
     margin-top:56px; padding-top:18px; border-top:1px solid var(--line);
@@ -460,9 +460,9 @@ const CONFIG = {
       "body": [
         "\u003cb>Are they signing in with an Admin account (Account set as “Admin” within Google Admin)?\u003c/b>",
         "\u003cul>\u003cli>If they are, that is the cause of their issue. Admin accounts within Google Admin cannot be redirected using the new SSO profile, which will result in this error when they attempt to login\u003c/li>\u003c/ul>",
-        "\u003cbr>\u003cb>\u003cb>For AD districts, ensure that the emails match between Google and AD.\u003c/b>\u003cb>\u003cbr>\u003c/b>\u003cb>\u003cbr>\u003c/b>Are they using Legacy SSO or the new SSO profiles?\u003c/b>",
+        "\u003cb>\u003cb>For AD districts, ensure that the emails match between Google and AD.\u003c/b>\u003cb>\u003cbr>\u003c/b>\u003cb>\u003cbr>\u003c/b>Are they using Legacy SSO or the new SSO profiles?\u003c/b>",
         "\u003cul>\u003cli>Under Google Admin &gt; Security &gt; Authentication &gt; SSO with Third Party IDP. Verify that the ClassLink SSO/Legacy SSO profile is assigned to the OU where the user is under, and the OU where the device is under.\u003c/li>\u003c/ul>",
-        "\u003cbr>Verify that their Google IDP configuration is set up correctly utilizing this article: https://help.classlink.com/s/article/Logging-into-Chromebooks-Using-ClassLink",
+        "Verify that their Google IDP configuration is set up correctly utilizing this article: https://help.classlink.com/s/article/Logging-into-Chromebooks-Using-ClassLink",
         "\u003cul>\u003cli>Specifically under user &amp; browser settings “Single Sign-on”\u003c/li>\u003c/ul>"
       ],
       "images": [
@@ -471,7 +471,7 @@ const CONFIG = {
           "caption": "",
           "attach": {
             "section": "body",
-            "index": 0
+            "index": -1
           }
         },
         {
@@ -593,16 +593,28 @@ function init(){
   if (CONFIG.updated) $("foot-right").textContent = "Updated " + CONFIG.updated;
 
   const m = $("sel-method"), g = $("sel-goal");
-  CONFIG.methods.forEach(x => m.appendChild(new Option(x.label, x.id)));
-  CONFIG.goals.forEach(x => g.appendChild(new Option(x.label, x.id)));
+  const covered = (mId, gId) => !!CONFIG.solutions[mId + "|" + gId];
+  const methodsWithContent = CONFIG.methods.filter(x => CONFIG.goals.some(y => covered(x.id, y.id)));
+  // If nothing is authored yet, fall back to showing everything rather than empty menus
+  const filtering = methodsWithContent.length > 0;
+  (filtering ? methodsWithContent : CONFIG.methods).forEach(x => m.appendChild(new Option(x.label, x.id)));
+
+  const refreshGoals = () => {
+    const prev = g.value;
+    const goals = filtering ? CONFIG.goals.filter(y => covered(m.value, y.id)) : CONFIG.goals;
+    g.innerHTML = "";
+    goals.forEach(y => g.appendChild(new Option(y.label, y.id)));
+    if (goals.some(y => y.id === prev)) g.value = prev;
+    updateHint();
+  };
 
   const updateHint = () => {
-    const has = !!CONFIG.solutions[m.value + "|" + g.value];
+    const has = covered(m.value, g.value);
     $("coverage-hint").textContent = has ? "" : "No playbook for this route yet";
   };
-  m.addEventListener("change", updateHint);
+  m.addEventListener("change", refreshGoals);
   g.addEventListener("change", updateHint);
-  updateHint();
+  refreshGoals();
 
   $("btn-solve").addEventListener("click", solve);
 }
@@ -621,10 +633,12 @@ function solve(){
   } else {
     const stepArr = sol.steps || [];
     const mindArr = sol.considerations || [];
-    const byStep = {}, byMind = {}, rest = [];
+    const byStep = {}, byMind = {}, rest = [], leadSteps = [], leadMinds = [];
     (sol.images || []).forEach(im => {
       const a = im.attach;
-      if (a && a.section === "steps" && a.index >= 0 && a.index < stepArr.length) (byStep[a.index] = byStep[a.index] || []).push(im);
+      if (a && a.section === "steps" && a.index === -1) leadSteps.push(im);
+      else if (a && a.section === "minds" && a.index === -1) leadMinds.push(im);
+      else if (a && a.section === "steps" && a.index >= 0 && a.index < stepArr.length) (byStep[a.index] = byStep[a.index] || []).push(im);
       else if (a && a.section === "minds" && a.index >= 0 && a.index < mindArr.length) (byMind[a.index] = byMind[a.index] || []).push(im);
       else rest.push(im);
     });
@@ -640,10 +654,11 @@ function solve(){
     const shots = rest.map(fig).join("");
     box.innerHTML = `
       <div class="playbook">
-        ${steps ? `<h2 class="sec-label">Steps</h2>` : ""}
+        ${steps || leadSteps.length ? `<h2 class="sec-label">Steps</h2>` : ""}
+        ${inlineShots(leadSteps.length ? leadSteps : null)}
         <ol class="steps">${steps}</ol>
         ${shots ? `<div class="shots">${shots}</div>` : ""}
-        ${minds ? `<div class="mind"><h3>Keep in mind</h3><ul>${minds}</ul></div>` : ""}
+        ${minds || leadMinds.length ? `<div class="mind"><h3>Keep in mind</h3>${inlineShots(leadMinds.length ? leadMinds : null)}<ul>${minds}</ul></div>` : ""}
       </div>`;
     box.querySelectorAll(".shots img").forEach(img => {
       img.addEventListener("click", () => {
@@ -674,10 +689,11 @@ function bindLightbox(scope){
 
 function articleHTML(a, open){
   const body = a.body || [];
-  const byLine = {}, rest = [];
+  const byLine = {}, rest = [], lead = [];
   (a.images || []).forEach(im => {
     const idx = im.attach && im.attach.index;
-    if (im.attach && idx >= 0 && idx < body.length) (byLine[idx] = byLine[idx] || []).push(im);
+    if (im.attach && idx === -1) lead.push(im);
+    else if (im.attach && idx >= 0 && idx < body.length) (byLine[idx] = byLine[idx] || []).push(im);
     else rest.push(im);
   });
   const fig = im => `
@@ -685,9 +701,10 @@ function articleHTML(a, open){
       <img src="${esc(im.src)}" alt="${esc(im.caption || "Screenshot")}" loading="lazy">
       ${im.caption ? `<figcaption>${linkify(im.caption)}</figcaption>` : ""}
     </figure>`;
+  const leadHTML = lead.length ? `<div class="shots inline">${lead.map(fig).join("")}</div>` : "";
   const paras = body.map((line, i) => `<div class="para">${renderLine(line)}</div>${byLine[i] ? `<div class="shots inline">${byLine[i].map(fig).join("")}</div>` : ""}`).join("");
   const tail = rest.length ? `<div class="shots inline">${rest.map(fig).join("")}</div>` : "";
-  return `<details class="article"${open ? " open" : ""}><summary>${esc(a.title || "Untitled")}</summary><div class="article-body">${paras}${tail}</div></details>`;
+  return `<details class="article"${open ? " open" : ""}><summary>${esc(a.title || "Untitled")}</summary><div class="article-body">${leadHTML}${paras}${tail}</div></details>`;
 }
 
 function initTrouble(){
